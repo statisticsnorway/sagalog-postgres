@@ -1,0 +1,21 @@
+version: '3.3'
+
+services:
+
+  postgresdb:
+    image: postgres:11-alpine
+    ports:
+    - 5432:5432
+    environment:
+      POSTGRES_PASSWORD: postgres
+    volumes:
+    - pg_sagalog_test:/var/lib/postgresql-sagalog_test/data
+
+  adminer:
+    image: adminer
+    ports:
+    - 8080:8080
+
+volumes:
+  pg_sagalog_test:
+
