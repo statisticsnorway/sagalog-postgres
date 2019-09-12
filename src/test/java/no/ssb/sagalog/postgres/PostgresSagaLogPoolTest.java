@@ -1,6 +1,7 @@
 package no.ssb.sagalog.postgres;
 
 import com.zaxxer.hikari.HikariDataSource;
+import no.ssb.sagalog.SagaLogBusyException;
 import no.ssb.sagalog.SagaLogId;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
@@ -20,9 +21,8 @@ public class PostgresSagaLogPoolTest {
 
     PostgresSagaLogPool pool;
 
-    @BeforeMethod
-    public void setup() throws SQLException {
-        Map<String, String> configuration = Map.of(
+    private Map<String, String> configuration() {
+        return Map.of(
                 "cluster.owner", "sagalog",
                 "cluster.name", "internal-sagalog-integration-testing",
                 "cluster.instance-id", "01",
@@ -32,6 +32,9 @@ public class PostgresSagaLogPoolTest {
                 "postgres.driver.password", "test",
                 "postgres.driver.database", "sagalog"
         );
+    }
+
+    private PostgresSagaLogPool createNewSagaLogPool(Map<String, String> configuration) throws SQLException {
         String clusterOwner = configuration.get("cluster.owner");
         String namespace = configuration.get("cluster.name");
         String instanceId = configuration.get("cluster.instance-id");
@@ -41,7 +44,12 @@ public class PostgresSagaLogPoolTest {
             connection.setAutoCommit(true);
             connection.createStatement().executeUpdate(String.format("DROP SCHEMA IF EXISTS \"%s\" CASCADE", schema));
         }
-        pool = new PostgresSagaLogPool(dataSource, clusterOwner, namespace, instanceId);
+        return new PostgresSagaLogPool(dataSource, clusterOwner, namespace, instanceId);
+    }
+
+    @BeforeMethod
+    public void setup() throws SQLException {
+        pool = createNewSagaLogPool(configuration());
     }
 
     @AfterMethod
@@ -66,10 +74,23 @@ public class PostgresSagaLogPoolTest {
         SagaLogId x1 = pool.idFor("otherInstance", "x1");
         pool.connect(x1);
         assertEquals(pool.clusterWideLogIds(), Set.of(l1, l2, x1));
+        assertEquals(pool.instanceLocalLogIds(), Set.of(l1, l2));
     }
 
     @Test
     void thatConnectExternalProducesANonNullSagaLog() {
         assertNotNull(pool.connectExternal(pool.registerInstanceLocalIdFor("anyId")));
+    }
+
+    @Test(expectedExceptions = SagaLogBusyException.class)
+    void thatSagaLogCannotBeOpenedBySeparatePools() throws SQLException {
+        PostgresSagaLogPool anotherPool = createNewSagaLogPool(configuration());
+        try {
+            SagaLogId sagaLogId = pool.registerInstanceLocalIdFor("somelog");
+            pool.connect(sagaLogId);
+            anotherPool.connect(sagaLogId);
+        } finally {
+            anotherPool.shutdown();
+        }
     }
 }

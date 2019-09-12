@@ -16,7 +16,6 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CountDownLatch;
 
 class PostgresSagaLogPool extends AbstractSagaLogPool {
 
@@ -26,7 +25,6 @@ class PostgresSagaLogPool extends AbstractSagaLogPool {
     final String namespace;
     final String clusterInstanceId;
     final Map<SagaLogId, SagaLog> connectedLocalLogBySagaLogId = new ConcurrentHashMap<>();
-    final CountDownLatch shutdownSignal = new CountDownLatch(1);
 
     PostgresSagaLogPool(HikariDataSource dataSource, String schema, String namespace, String clusterInstanceId) {
         super(clusterInstanceId);
@@ -208,7 +206,7 @@ class PostgresSagaLogPool extends AbstractSagaLogPool {
     private long findAvailableLockKey(Connection connection) throws SQLException {
         String sql = String.format("SELECT 1 FROM \"%s\".\"Locks\" WHERE lock_key = ?", schema);
         PreparedStatement ps = connection.prepareStatement(sql);
-        for (int i = 0; i < 100; i++) {
+        for (int i = 0; i < 10; i++) {
             long attemptedLockKey = 1 + random.nextInt(1000000000);
             ps.setLong(1, attemptedLockKey);
             ResultSet rs = ps.executeQuery();
@@ -223,18 +221,24 @@ class PostgresSagaLogPool extends AbstractSagaLogPool {
     }
 
     private void assignLockKeyToLog(Connection connection, SagaLogId logId, long lockKey) throws SQLException {
-        String sql = String.format("UPDATE \"%s\".\"Locks\" SET lock_key = ? WHERE namespace = ? AND instance_id = ? AND log_id = ?", ((PostgresSagaLogId) logId).getSchema());
+        String sql = String.format("INSERT INTO \"%s\".\"Locks\" (namespace, instance_id, log_id, lock_key) VALUES(?, ?, ?, ?)", ((PostgresSagaLogId) logId).getSchema());
         PreparedStatement ps = connection.prepareStatement(sql);
-        ps.setLong(1, lockKey);
-        ps.setString(2, namespace);
-        ps.setString(3, clusterInstanceId);
-        ps.setString(4, logId.getLogName());
+        ps.setString(1, namespace);
+        ps.setString(2, clusterInstanceId);
+        ps.setString(3, logId.getLogName());
+        ps.setLong(4, lockKey);
         ps.executeUpdate();
         ps.close();
     }
 
     @Override
     public void shutdown() {
-        shutdownSignal.countDown();
+        for (Map.Entry<SagaLogId, SagaLog> entry : connectedLocalLogBySagaLogId.entrySet()) {
+            try {
+                entry.getValue().close();
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        }
     }
 }
