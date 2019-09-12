@@ -1,7 +1,7 @@
 import no.ssb.sagalog.SagaLogInitializer;
 import no.ssb.sagalog.postgres.PostgresSagaLogInitializer;
 
-module no.ssb.rawdata.postgres {
+module no.ssb.sagalog.postgres {
     requires no.ssb.sagalog;
     requires java.logging;
     requires java.sql;
