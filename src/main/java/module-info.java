@@ -9,7 +9,7 @@ module no.ssb.sagalog.postgres {
     requires com.zaxxer.hikari;
     requires postgresql;
 
-    opens postgres;
+    opens no.ssb.sagalog.postgres.init;
 
     provides SagaLogInitializer with PostgresSagaLogInitializer;
 }

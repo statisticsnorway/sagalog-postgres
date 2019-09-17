@@ -1,7 +1,9 @@
 package no.ssb.sagalog.postgres;
 
+import com.zaxxer.hikari.HikariDataSource;
 import de.huxhorn.sulky.ulid.ULID;
 import no.ssb.sagalog.SagaLog;
+import no.ssb.sagalog.SagaLogBusyException;
 import no.ssb.sagalog.SagaLogEntry;
 import no.ssb.sagalog.SagaLogEntryBuilder;
 import no.ssb.sagalog.SagaLogEntryId;
@@ -9,47 +11,265 @@ import no.ssb.sagalog.SagaLogEntryType;
 import no.ssb.sagalog.SagaLogId;
 import org.postgresql.util.PGobject;
 
-import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.stream.Stream;
 
 class PostgresSagaLog implements SagaLog, AutoCloseable {
 
-
     final ULID ulid = new ULID();
     final AtomicReference<ULID.Value> prevUlid = new AtomicReference<>(ulid.nextValue());
 
-    final DataSource dataSource;
+    final Random random;
+    final HikariDataSource dataSource;
     final PostgresSagaLogId sagaLogId;
-    final long lockKey;
     final AtomicBoolean closed = new AtomicBoolean(false);
 
-    PostgresSagaLog(DataSource dataSource, SagaLogId _sagaLogId, long lockKey) {
+    final int failOnXAttempts;
+    final Object sync = new Object();
+    Connection theConnection;
+    boolean lockIsHeld;
+    long lockKey;
+    boolean reconnecting = false;
+
+    PostgresSagaLog(HikariDataSource dataSource, SagaLogId _sagaLogId, Random random, int failOnXAttempts) {
         this.dataSource = dataSource;
         this.sagaLogId = (PostgresSagaLogId) _sagaLogId;
-        this.lockKey = lockKey;
+        this.random = random;
+        this.failOnXAttempts = failOnXAttempts;
+        this.lockKey = getOrAssignLockKey(sagaLogId);
+        boolean success = runTransaction((Function<Connection, Boolean>) connection -> tryLock(connection, lockKey));
+        if (!success) {
+            throw new SagaLogBusyException(String.format("Unable to acquire exclusive lock on %s with lock-key %d.", sagaLogId, lockKey));
+        }
         initSagalogTable();
     }
 
-    private void initSagalogTable() {
-        try (Connection connection = dataSource.getConnection()) {
-            connection.setAutoCommit(false);
-            connection.beginRequest();
-            createSagalogTableIfNotExists(connection);
-            connection.commit();
-            connection.endRequest();
+    void runTransaction(Consumer<Connection> operation) {
+        runTransaction(connection -> {
+            operation.accept(connection);
+            return null;
+        });
+    }
+
+    <T> T runTransaction(Function<Connection, T> operation) {
+        synchronized (sync) {
+
+            boolean success = false;
+
+            int N = 2;
+
+            for (int i = 0; i < N; i++) {
+                try {
+
+                    if (theConnection == null) {
+                        theConnection = dataSource.getConnection();
+                    }
+
+                    if (reconnecting) {
+                        dataSource.evictConnection(theConnection);
+                        theConnection = dataSource.getConnection();
+
+                        if (lockIsHeld) {
+                            // avoid race-condition where the advisory lock might or might not yet have been
+                            // automatically released when previous connection was closed or evicted
+                            unlock(theConnection, lockKey);
+                        }
+
+                        // re-acquire lock on new connection
+                        if (!tryLock(theConnection, lockKey)) {
+                            throw new SagaLogBusyException("Unable to re-acquire lock after connection retry.");
+                        }
+
+                        reconnecting = false;
+                    }
+
+                    theConnection.setAutoCommit(false);
+                    theConnection.beginRequest();
+
+                    T result = operation.apply(theConnection);
+
+                    if (i < failOnXAttempts) {
+                        theConnection.close();
+                    }
+
+                    theConnection.commit();
+                    theConnection.endRequest();
+
+                    success = true;
+
+                    return result;
+
+                } catch (SQLException e) {
+                    if (i + 1 < N) {
+                        reconnecting = true;
+                        try {
+                            dataSource.evictConnection(theConnection);
+                            theConnection = dataSource.getConnection();
+                            if (lockIsHeld) {
+                                // avoid race-condition where the advisory lock might or might not yet have been
+                                // automatically released when previous connection was closed or evicted
+                                unlock(theConnection, lockKey);
+                            }
+
+                            // re-acquire lock on new connection
+                            boolean acquired = false;
+                            for (int j = 0; j < 5; j++) {
+                                if ((acquired = tryLock(theConnection, lockKey))) {
+                                    break;
+                                }
+                                sync.wait(2000);
+                            }
+                            if (!acquired) {
+                                throw new SagaLogBusyException("Unable to re-acquire lock after connection retry.", e);
+                            }
+
+                            reconnecting = false;
+                        } catch (SQLException | InterruptedException ex) {
+                            // reconnect fails, propagate original exception and ignore this exception
+                            throw new RuntimeException(e);
+                        }
+                    } else {
+                        throw new RuntimeException("Retry limit reached after " + (i + 1) + " attempts", e);
+                    }
+                } finally {
+                    if (!success) {
+                        try {
+                            theConnection.rollback();
+                        } catch (SQLException e) {
+                            // ignore to avoid masking first exception from other try block
+                        }
+                    }
+                }
+            }
+
+            return null;
+        }
+    }
+
+    private boolean tryLock(Connection connection, long key) {
+        try {
+            String sql = String.format("SELECT pg_try_advisory_lock(?)");
+            PreparedStatement ps = connection.prepareStatement(sql);
+            ps.setLong(1, key);
+            ResultSet rs = ps.executeQuery();
+            if (rs.next()) {
+                boolean obtained = rs.getBoolean(1);
+                if (obtained) {
+                    lockIsHeld = true;
+                }
+                return obtained;
+            }
+            return false;
         } catch (SQLException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    private boolean unlock(Connection connection, long key) {
+        try {
+            String sql = String.format("SELECT pg_advisory_unlock(?)");
+            PreparedStatement ps = connection.prepareStatement(sql);
+            ps.setLong(1, key);
+            ResultSet rs = ps.executeQuery();
+            if (rs.next()) {
+                boolean released = rs.getBoolean(1);
+                if (released) {
+                    lockIsHeld = false;
+                }
+                return released;
+            }
+            return false;
+        } catch (SQLException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private long getOrAssignLockKey(SagaLogId logId) {
+        return runTransaction(connection -> {
+            try {
+                return getOrAssignLockKey(connection, logId);
+            } catch (SQLException e) {
+                throw new RuntimeException(e);
+            }
+        });
+    }
+
+    private long getOrAssignLockKey(Connection connection, SagaLogId logId) throws SQLException {
+        Long existingLockKey = findExistingLock(connection, logId);
+        if (existingLockKey != null) {
+            return existingLockKey;
+        }
+
+        // assigned new lock
+        long lockKey = findAvailableLockKey(connection);
+        assignLockKeyToLog(connection, logId, lockKey);
+        return lockKey;
+    }
+
+    private Long findExistingLock(Connection connection, SagaLogId logId) throws SQLException {
+        String sql = String.format("SELECT lock_key FROM \"%s\".\"Locks\" WHERE namespace = ? AND instance_id = ? AND log_id = ?", ((PostgresSagaLogId) logId).getSchema());
+        PreparedStatement ps = connection.prepareStatement(sql);
+        ps.setString(1, sagaLogId.getNamespace());
+        ps.setString(2, sagaLogId.getClusterInstanceId());
+        ps.setString(3, logId.getLogName());
+        ResultSet rs = ps.executeQuery();
+        if (rs.next()) {
+            Long lockKey = (Long) rs.getObject(1);
+            ps.close();
+            return lockKey;
+        }
+        ps.close();
+        return null;
+    }
+
+    private long findAvailableLockKey(Connection connection) throws SQLException {
+        String sql = String.format("SELECT 1 FROM \"%s\".\"Locks\" WHERE lock_key = ?", sagaLogId.getSchema());
+        PreparedStatement ps = connection.prepareStatement(sql);
+        for (int i = 0; i < 10; i++) {
+            long attemptedLockKey = 1 + random.nextInt(1000000000);
+            ps.setLong(1, attemptedLockKey);
+            ResultSet rs = ps.executeQuery();
+            if (!rs.next()) {
+                rs.close();
+                return attemptedLockKey;
+            }
+            rs.close();
+        }
+        ps.close();
+        throw new IllegalStateException("Unable to generate random lockKey that is available");
+    }
+
+    private void assignLockKeyToLog(Connection connection, SagaLogId logId, long lockKey) throws SQLException {
+        String sql = String.format("INSERT INTO \"%s\".\"Locks\" (namespace, instance_id, log_id, lock_key) VALUES(?, ?, ?, ?)", ((PostgresSagaLogId) logId).getSchema());
+        PreparedStatement ps = connection.prepareStatement(sql);
+        ps.setString(1, sagaLogId.getNamespace());
+        ps.setString(2, sagaLogId.getClusterInstanceId());
+        ps.setString(3, logId.getLogName());
+        ps.setLong(4, lockKey);
+        ps.executeUpdate();
+        ps.close();
+    }
+
+    private void initSagalogTable() {
+        runTransaction(connection -> {
+            try {
+                createSagalogTableIfNotExists(connection);
+            } catch (SQLException e) {
+                throw new RuntimeException(e);
+            }
+        });
     }
 
     private void createSagalogTableIfNotExists(Connection connection) throws SQLException {
@@ -89,25 +309,24 @@ class PostgresSagaLog implements SagaLog, AutoCloseable {
             SagaLogEntry entry = builder
                     .id(new PostgresSagaLogEntryId(entryId))
                     .build();
-            try (Connection connection = dataSource.getConnection()) {
-                connection.beginRequest();
-                connection.setAutoCommit(true);
-                String sql = String.format("INSERT INTO \"%s\".\"%s\" (txid, entry_id, entry_type, node_id, saga_name, data) VALUES(?, ?, ?, ?, ?, ?)", sagaLogId.getSchema(), sagaLogId.getTableName());
-                PreparedStatement ps = connection.prepareStatement(sql);
-                ps.setObject(1, UUID.fromString(entry.getExecutionId()));
-                ps.setObject(2, new UUID(entryId.getMostSignificantBits(), entryId.getLeastSignificantBits()));
-                ps.setShort(3, PostgresSagaTools.toShort(entry.getEntryType()));
-                ps.setString(4, entry.getNodeId());
-                ps.setString(5, entry.getSagaName());
-                PGobject jsonData = new PGobject();
-                jsonData.setType("json");
-                jsonData.setValue(entry.getJsonData());
-                ps.setObject(6, jsonData);
-                ps.executeUpdate();
-                connection.endRequest();
-            } catch (SQLException e) {
-                throw new RuntimeException(e);
-            }
+            runTransaction(connection -> {
+                try {
+                    String sql = String.format("INSERT INTO \"%s\".\"%s\" (txid, entry_id, entry_type, node_id, saga_name, data) VALUES(?, ?, ?, ?, ?, ?)", sagaLogId.getSchema(), sagaLogId.getTableName());
+                    PreparedStatement ps = connection.prepareStatement(sql);
+                    ps.setObject(1, UUID.fromString(entry.getExecutionId()));
+                    ps.setObject(2, new UUID(entryId.getMostSignificantBits(), entryId.getLeastSignificantBits()));
+                    ps.setShort(3, PostgresSagaTools.toShort(entry.getEntryType()));
+                    ps.setString(4, entry.getNodeId());
+                    ps.setString(5, entry.getSagaName());
+                    PGobject jsonData = new PGobject();
+                    jsonData.setType("json");
+                    jsonData.setValue(entry.getJsonData());
+                    ps.setObject(6, jsonData);
+                    ps.executeUpdate();
+                } catch (SQLException e) {
+                    throw new RuntimeException(e);
+                }
+            });
             return entry;
         });
     }
@@ -115,33 +334,46 @@ class PostgresSagaLog implements SagaLog, AutoCloseable {
     @Override
     public CompletableFuture<Void> truncate(SagaLogEntryId _entryId) {
         checkNotClosed();
-        return CompletableFuture.runAsync(() -> {
-            try (Connection connection = dataSource.getConnection()) {
-                connection.beginRequest();
-                connection.setAutoCommit(true);
+        return CompletableFuture.runAsync(() -> runTransaction(connection -> {
+            try {
                 String sql = String.format("DELETE FROM \"%s\".\"%s\" WHERE entry_id <= ?", sagaLogId.getSchema(), sagaLogId.getTableName());
                 PreparedStatement ps = connection.prepareStatement(sql);
                 PostgresSagaLogEntryId entryId = (PostgresSagaLogEntryId) _entryId;
                 UUID uuid = new UUID(entryId.id.getMostSignificantBits(), entryId.id.getLeastSignificantBits());
                 ps.setObject(1, uuid);
                 ps.executeUpdate();
-                connection.endRequest();
             } catch (SQLException e) {
                 throw new RuntimeException(e);
             }
-        });
+        }));
     }
 
     @Override
     public CompletableFuture<Void> truncate() {
         checkNotClosed();
-        return CompletableFuture.runAsync(() -> {
-            try (Connection connection = dataSource.getConnection()) {
-                connection.beginRequest();
-                connection.setAutoCommit(true);
+        return CompletableFuture.runAsync(() -> runTransaction(connection -> {
+            try {
                 String sql = String.format("TRUNCATE TABLE \"%s\".\"%s\"", sagaLogId.getSchema(), sagaLogId.getTableName());
                 connection.createStatement().executeUpdate(sql);
-                connection.endRequest();
+            } catch (SQLException e) {
+                throw new RuntimeException(e);
+            }
+        }));
+    }
+
+    @Override
+    public Stream<SagaLogEntry> readIncompleteSagas() {
+        checkNotClosed();
+        return runTransaction(connection -> {
+            try {
+                String sql = String.format("SELECT entry_id, txid, entry_type, node_id, saga_name, data FROM \"%s\".\"%s\"", sagaLogId.getSchema(), sagaLogId.getTableName());
+                ResultSet rs = connection.createStatement().executeQuery(sql);
+                List<SagaLogEntry> result = new ArrayList<>();
+                while (rs.next()) {
+                    SagaLogEntry entry = sagaLogEntryRowMapper(rs);
+                    result.add(entry);
+                }
+                return result.stream();
             } catch (SQLException e) {
                 throw new RuntimeException(e);
             }
@@ -149,45 +381,25 @@ class PostgresSagaLog implements SagaLog, AutoCloseable {
     }
 
     @Override
-    public Stream<SagaLogEntry> readIncompleteSagas() {
-        checkNotClosed();
-        try (Connection connection = dataSource.getConnection()) {
-            connection.beginRequest();
-            connection.setAutoCommit(true);
-            String sql = String.format("SELECT entry_id, txid, entry_type, node_id, saga_name, data FROM \"%s\".\"%s\"", sagaLogId.getSchema(), sagaLogId.getTableName());
-            ResultSet rs = connection.createStatement().executeQuery(sql);
-            List<SagaLogEntry> result = new ArrayList<>();
-            while (rs.next()) {
-                SagaLogEntry entry = sagaLogEntryRowMapper(rs);
-                result.add(entry);
-            }
-            connection.endRequest();
-            return result.stream();
-        } catch (SQLException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    @Override
     public Stream<SagaLogEntry> readEntries(String txId) {
         checkNotClosed();
-        try (Connection connection = dataSource.getConnection()) {
-            connection.beginRequest();
-            connection.setAutoCommit(true);
-            String sql = String.format("SELECT entry_id, txid, entry_type, node_id, saga_name, data FROM \"%s\".\"%s\" WHERE txid = ?", sagaLogId.getSchema(), sagaLogId.getTableName());
-            PreparedStatement ps = connection.prepareStatement(sql);
-            ps.setObject(1, UUID.fromString(txId));
-            ResultSet rs = ps.executeQuery();
-            List<SagaLogEntry> result = new ArrayList<>();
-            while (rs.next()) {
-                SagaLogEntry entry = sagaLogEntryRowMapper(rs);
-                result.add(entry);
+        return runTransaction(connection ->
+        {
+            try {
+                String sql = String.format("SELECT entry_id, txid, entry_type, node_id, saga_name, data FROM \"%s\".\"%s\" WHERE txid = ?", sagaLogId.getSchema(), sagaLogId.getTableName());
+                PreparedStatement ps = connection.prepareStatement(sql);
+                ps.setObject(1, UUID.fromString(txId));
+                ResultSet rs = ps.executeQuery();
+                List<SagaLogEntry> result = new ArrayList<>();
+                while (rs.next()) {
+                    SagaLogEntry entry = sagaLogEntryRowMapper(rs);
+                    result.add(entry);
+                }
+                return result.stream();
+            } catch (SQLException e) {
+                throw new RuntimeException(e);
             }
-            connection.endRequest();
-            return result.stream();
-        } catch (SQLException e) {
-            throw new RuntimeException(e);
-        }
+        });
     }
 
     private SagaLogEntry sagaLogEntryRowMapper(ResultSet rs) throws SQLException {
@@ -238,8 +450,10 @@ class PostgresSagaLog implements SagaLog, AutoCloseable {
 
     @Override
     public void close() {
-        if (!closed.compareAndSet(false, true)) {
-            return;
+        if (closed.compareAndSet(false, true)) {
+            synchronized (sync) {
+                unlock(theConnection, lockKey);
+            }
         }
     }
 }

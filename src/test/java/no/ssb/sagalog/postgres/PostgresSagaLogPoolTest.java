@@ -34,22 +34,31 @@ public class PostgresSagaLogPoolTest {
         );
     }
 
-    private PostgresSagaLogPool createNewSagaLogPool(Map<String, String> configuration) throws SQLException {
+    private PostgresSagaLogPool createNewSagaLogPool(Map<String, String> configuration, HikariDataSource dataSource) {
         String clusterOwner = configuration.get("cluster.owner");
         String namespace = configuration.get("cluster.name");
         String instanceId = configuration.get("cluster.instance-id");
-        HikariDataSource dataSource = PostgresSagaLogInitializer.createHikariDataSource(configuration);
+        return new PostgresSagaLogPool(dataSource, clusterOwner, namespace, instanceId);
+    }
+
+    private void cleanDatabase(Map<String, String> configuration, HikariDataSource dataSource) throws SQLException {
         String schema = configuration.get("cluster.owner");
+        String username = configuration.get("postgres.driver.user");
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(true);
             connection.createStatement().executeUpdate(String.format("DROP SCHEMA IF EXISTS \"%s\" CASCADE", schema));
+            connection.createStatement().executeUpdate(String.format("CREATE SCHEMA \"%s\" AUTHORIZATION \"%s\"", schema, username));
+            PostgresSagaLogInitializer.createSchemaIfNotExists(connection, schema, username);
+            PostgresSagaLogInitializer.createLocksTableIfNotExists(connection, schema);
         }
-        return new PostgresSagaLogPool(dataSource, clusterOwner, namespace, instanceId);
     }
 
     @BeforeMethod
     public void setup() throws SQLException {
-        pool = createNewSagaLogPool(configuration());
+        Map<String, String> configuration = configuration();
+        HikariDataSource dataSource = PostgresSagaLogInitializer.createHikariDataSource(configuration);
+        cleanDatabase(configuration, dataSource);
+        pool = createNewSagaLogPool(configuration, dataSource);
     }
 
     @AfterMethod
@@ -83,10 +92,12 @@ public class PostgresSagaLogPoolTest {
     }
 
     @Test(expectedExceptions = SagaLogBusyException.class)
-    void thatSagaLogCannotBeOpenedBySeparatePools() throws SQLException {
-        PostgresSagaLogPool anotherPool = createNewSagaLogPool(configuration());
+    void thatSagaLogCannotBeOpenedBySeparatePools() {
+        SagaLogId sagaLogId = pool.registerInstanceLocalIdFor("somelog");
+        pool.connect(sagaLogId);
+        pool.connect(sagaLogId);
+        PostgresSagaLogPool anotherPool = createNewSagaLogPool(configuration(), pool.dataSource);
         try {
-            SagaLogId sagaLogId = pool.registerInstanceLocalIdFor("somelog");
             pool.connect(sagaLogId);
             anotherPool.connect(sagaLogId);
         } finally {

@@ -1,5 +1,6 @@
 package no.ssb.sagalog.postgres;
 
+import com.zaxxer.hikari.HikariDataSource;
 import no.ssb.sagalog.SagaLog;
 import no.ssb.sagalog.SagaLogEntry;
 import no.ssb.sagalog.SagaLogEntryBuilder;
@@ -9,7 +10,6 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
-import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.Deque;
@@ -17,6 +17,7 @@ import java.util.LinkedHashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -29,11 +30,11 @@ public class PostgresSagaLogTest {
 
     private static final PostgresSagaLogId SAGA_LOG_ID = new PostgresSagaLogId("sagalog", "internal-sagalog-integration-testing", "01", "the-saga-log");
 
-    private DataSource dataSource;
+    private HikariDataSource dataSource;
     private PostgresSagaLog sagaLog;
 
     @BeforeClass
-    public void initializePostgresTenantAndNamespace() throws SQLException {
+    public void initializePostgresNamespace() throws SQLException {
         Map<String, String> configuration = Map.of(
                 "cluster.owner", "sagalog",
                 "cluster.name", "internal-sagalog-integration-testing",
@@ -49,8 +50,10 @@ public class PostgresSagaLogTest {
         String username = configuration.get("postgres.driver.user");
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(true);
-            //connection.createStatement().executeUpdate(String.format("DROP SCHEMA IF EXISTS \"%s\" CASCADE", schema));
-            //connection.createStatement().executeUpdate(String.format("CREATE SCHEMA \"%s\" AUTHORIZATION \"%s\"", schema, username));
+            connection.createStatement().executeUpdate(String.format("DROP SCHEMA IF EXISTS \"%s\" CASCADE", schema));
+            connection.createStatement().executeUpdate(String.format("CREATE SCHEMA \"%s\" AUTHORIZATION \"%s\"", schema, username));
+            PostgresSagaLogInitializer.createSchemaIfNotExists(connection, schema, username);
+            PostgresSagaLogInitializer.createLocksTableIfNotExists(connection, schema);
         }
     }
 
@@ -61,7 +64,7 @@ public class PostgresSagaLogTest {
 
     @BeforeMethod
     private void createAndCleanPostgresSagaLog() {
-        sagaLog = new PostgresSagaLog(dataSource, SAGA_LOG_ID, 1);
+        sagaLog = new PostgresSagaLog(dataSource, SAGA_LOG_ID, new Random(), 1 /* To test re-connect path */);
         sagaLog.truncate().join();
     }
 
