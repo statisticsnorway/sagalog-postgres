@@ -46,6 +46,11 @@
             <id>ossrh</id>
             <url>https://oss.sonatype.org/content/repositories/snapshots</url>
         </snapshotRepository>
+        <repository>
+            <id>github</id>
+            <name>GitHub Statisticsnorway Apache Maven Packages</name>
+            <url>https://maven.pkg.github.com/statisticsnorway/linked-data-store-core</url>
+        </repository>
     </distributionManagement>
 
     <dependencies>
