@@ -25,6 +25,7 @@ public class PostgresSagaLogInitializer implements SagaLogInitializer {
         HikariDataSource dataSource = createHikariDataSource(configuration);
 
         try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
             connection.beginRequest();
             createSchemaIfNotExists(connection, clusterOwner, configuration.get("postgres.driver.user"));
             createLocksTableIfNotExists(connection, clusterOwner);

@@ -10,7 +10,6 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Random;
@@ -33,42 +32,6 @@ class PostgresSagaLogPool extends AbstractSagaLogPool {
         this.schema = schema;
         this.namespace = namespace;
         this.clusterInstanceId = clusterInstanceId;
-        try (Connection connection = dataSource.getConnection()) {
-            connection.setAutoCommit(false);
-            connection.beginRequest();
-            createSchemaIfNotExists(connection, schema, "test");
-            createLocksTableIfNotExists(connection, schema);
-            connection.commit();
-            connection.endRequest();
-        } catch (SQLException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    static void createSchemaIfNotExists(Connection connection, String schema, String username) throws SQLException {
-        Statement st = connection.createStatement();
-        try {
-            String sql = String.format("CREATE SCHEMA IF NOT EXISTS \"%s\" AUTHORIZATION \"%s\"", schema, username);
-            st.executeUpdate(sql);
-        } finally {
-            st.close();
-        }
-    }
-
-    static void createLocksTableIfNotExists(Connection connection, String schema) throws SQLException {
-        Statement st = connection.createStatement();
-        try {
-            String sql = String.format("CREATE TABLE IF NOT EXISTS \"%s\".\"Locks\" (\n" +
-                    "    namespace       varchar NOT NULL,\n" +
-                    "    instance_id     varchar NOT NULL,\n" +
-                    "    log_id          varchar NOT NULL,\n" +
-                    "    lock_key        bigint  NOT NULL,\n" +
-                    "    PRIMARY KEY (namespace, instance_id, log_id)\n" +
-                    ")", schema);
-            st.executeUpdate(sql);
-        } finally {
-            st.close();
-        }
     }
 
     @Override
