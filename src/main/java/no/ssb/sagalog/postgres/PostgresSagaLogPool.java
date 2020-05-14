@@ -5,6 +5,8 @@ import no.ssb.sagalog.AbstractSagaLogPool;
 import no.ssb.sagalog.SagaLog;
 import no.ssb.sagalog.SagaLogBusyException;
 import no.ssb.sagalog.SagaLogId;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -17,6 +19,8 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 class PostgresSagaLogPool extends AbstractSagaLogPool {
+
+    private static final Logger LOG = LoggerFactory.getLogger(PostgresSagaLogPool.class);
 
     final Random random = new Random();
     final HikariDataSource dataSource;
@@ -82,6 +86,7 @@ class PostgresSagaLogPool extends AbstractSagaLogPool {
 
     @Override
     public void shutdown() {
+        LOG.info("Shutting down {}...", PostgresSagaLogPool.class.getSimpleName());
         for (Map.Entry<SagaLogId, SagaLog> entry : connectedLocalLogBySagaLogId.entrySet()) {
             try {
                 entry.getValue().close();
@@ -89,5 +94,7 @@ class PostgresSagaLogPool extends AbstractSagaLogPool {
                 throw new RuntimeException(e);
             }
         }
+        dataSource.close();
+        LOG.info("Shutdown of {} complete", PostgresSagaLogPool.class.getSimpleName());
     }
 }

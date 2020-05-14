@@ -8,6 +8,7 @@ module no.ssb.sagalog.postgres {
     requires de.huxhorn.sulky.ulid;
     requires com.zaxxer.hikari;
     requires postgresql;
+    requires org.slf4j;
 
     opens no.ssb.sagalog.postgres.init;
 

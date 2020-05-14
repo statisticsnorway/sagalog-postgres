@@ -275,7 +275,7 @@ class PostgresSagaLog implements SagaLog, AutoCloseable {
     private void createSagalogTableIfNotExists(Connection connection) throws SQLException {
         String sql = String.format("CREATE TABLE IF NOT EXISTS \"%s\".\"%s\" (\n" +
                 "    entry_id        uuid      NOT NULL,\n" +
-                "    txid            uuid      NOT NULL,\n" +
+                "    txid            varchar   NOT NULL,\n" +
                 "    entry_type      smallint  NOT NULL,\n" +
                 "    node_id         varchar   NOT NULL,\n" +
                 "    saga_name       varchar   NULL,\n" +
@@ -313,7 +313,7 @@ class PostgresSagaLog implements SagaLog, AutoCloseable {
                 try {
                     String sql = String.format("INSERT INTO \"%s\".\"%s\" (txid, entry_id, entry_type, node_id, saga_name, data) VALUES(?, ?, ?, ?, ?, ?)", sagaLogId.getSchema(), sagaLogId.getTableName());
                     PreparedStatement ps = connection.prepareStatement(sql);
-                    ps.setObject(1, UUID.fromString(entry.getExecutionId()));
+                    ps.setString(1, entry.getExecutionId());
                     ps.setObject(2, new UUID(entryId.getMostSignificantBits(), entryId.getLeastSignificantBits()));
                     ps.setShort(3, PostgresSagaTools.toShort(entry.getEntryType()));
                     ps.setString(4, entry.getNodeId());
@@ -388,7 +388,7 @@ class PostgresSagaLog implements SagaLog, AutoCloseable {
             try {
                 String sql = String.format("SELECT entry_id, txid, entry_type, node_id, saga_name, data FROM \"%s\".\"%s\" WHERE txid = ?", sagaLogId.getSchema(), sagaLogId.getTableName());
                 PreparedStatement ps = connection.prepareStatement(sql);
-                ps.setObject(1, UUID.fromString(txId));
+                ps.setString(1, txId);
                 ResultSet rs = ps.executeQuery();
                 List<SagaLogEntry> result = new ArrayList<>();
                 while (rs.next()) {
@@ -404,16 +404,15 @@ class PostgresSagaLog implements SagaLog, AutoCloseable {
 
     private SagaLogEntry sagaLogEntryRowMapper(ResultSet rs) throws SQLException {
         UUID entry_id = (UUID) rs.getObject("entry_id");
-        UUID txid = (UUID) rs.getObject("txid");
+        String txid = rs.getString("txid");
         short entry_type = rs.getShort("entry_type");
         String node_id = rs.getString("node_id");
         String saga_name = rs.getString("saga_name");
         String data = rs.getString("data");
         PostgresSagaLogEntryId entryId = new PostgresSagaLogEntryId(new ULID.Value(entry_id.getMostSignificantBits(), entry_id.getLeastSignificantBits()));
-        String executionId = txid.toString();
         SagaLogEntryType entryType = PostgresSagaTools.fromShort(entry_type);
         return new SagaLogEntryBuilder()
-                .executionId(executionId)
+                .executionId(txid)
                 .id(entryId)
                 .entryType(entryType)
                 .nodeId(node_id)

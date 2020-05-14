@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS sagalog.Locks (
 
 CREATE TABLE IF NOT EXISTS sagalog.Sagalog (
     entry_id        uuid      NOT NULL,
-    txid            uuid      NOT NULL,
+    txid            varchar   NOT NULL,
     entry_type      smallint  NOT NULL,
     node_id         varchar   NOT NULL,
     saga_name       varchar   NULL,

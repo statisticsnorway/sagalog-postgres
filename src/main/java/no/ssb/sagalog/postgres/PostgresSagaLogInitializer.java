@@ -49,7 +49,8 @@ public class PostgresSagaLogInitializer implements SagaLogInitializer {
                 "postgres.driver.port", "5432",
                 "postgres.driver.user", "test",
                 "postgres.driver.password", "test",
-                "postgres.driver.database", "sagalog"
+                "postgres.driver.database", "sagalog",
+                "connection-pool.max-size", "10"
         );
     }
 
@@ -58,11 +59,14 @@ public class PostgresSagaLogInitializer implements SagaLogInitializer {
 
         HikariDataSource dataSource;
 
+        int maxConnectionPoolSize = Integer.parseInt(configuration.get("connection-pool.max-size"));
+
         if (enableH2DatabaseDriver) {
             dataSource = openH2DataSource(
                     configuration.get("h2.driver.url"),
                     "sa",
-                    "sa"
+                    "sa",
+                    maxConnectionPoolSize
             );
         } else {
             dataSource = openPostgresDataSource(
@@ -70,13 +74,14 @@ public class PostgresSagaLogInitializer implements SagaLogInitializer {
                     configuration.get("postgres.driver.port"),
                     configuration.get("postgres.driver.user"),
                     configuration.get("postgres.driver.password"),
-                    configuration.get("postgres.driver.database")
+                    configuration.get("postgres.driver.database"),
+                    maxConnectionPoolSize
             );
         }
         return dataSource;
     }
 
-    static HikariDataSource openPostgresDataSource(String postgresDbDriverHost, String postgresDbDriverPort, String postgresDbDriverUser, String postgresDbDriverPassword, String postgresDbDriverDatabase) {
+    static HikariDataSource openPostgresDataSource(String postgresDbDriverHost, String postgresDbDriverPort, String postgresDbDriverUser, String postgresDbDriverPassword, String postgresDbDriverDatabase, int maxConnectionPoolSize) {
         Properties props = new Properties();
         props.setProperty("dataSourceClassName", "org.postgresql.ds.PGSimpleDataSource");
         props.setProperty("dataSource.serverName", postgresDbDriverHost);
@@ -88,7 +93,7 @@ public class PostgresSagaLogInitializer implements SagaLogInitializer {
 
         HikariConfig config = new HikariConfig(props);
         config.setAutoCommit(false);
-        config.setMaximumPoolSize(10);
+        config.setMaximumPoolSize(maxConnectionPoolSize);
         HikariDataSource datasource = new HikariDataSource(config);
 
         return datasource;
@@ -114,7 +119,7 @@ public class PostgresSagaLogInitializer implements SagaLogInitializer {
         st.close();
     }
 
-    static HikariDataSource openH2DataSource(String jdbcUrl, String username, String password) {
+    static HikariDataSource openH2DataSource(String jdbcUrl, String username, String password, int maxConnectionPoolSize) {
         Properties props = new Properties();
         props.setProperty("jdbcUrl", jdbcUrl);
         props.setProperty("username", username);
@@ -123,7 +128,7 @@ public class PostgresSagaLogInitializer implements SagaLogInitializer {
 
         HikariConfig config = new HikariConfig(props);
         config.setAutoCommit(false);
-        config.setMaximumPoolSize(10);
+        config.setMaximumPoolSize(maxConnectionPoolSize);
         HikariDataSource datasource = new HikariDataSource(config);
 
         return datasource;
