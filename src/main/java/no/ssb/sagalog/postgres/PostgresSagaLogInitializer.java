@@ -59,7 +59,7 @@ public class PostgresSagaLogInitializer implements SagaLogInitializer {
 
         HikariDataSource dataSource;
 
-        int maxConnectionPoolSize = Integer.parseInt(configuration.get("connection-pool.max-size"));
+        int maxConnectionPoolSize = Integer.parseInt(configuration.getOrDefault("connection-pool.max-size", "10"));
 
         if (enableH2DatabaseDriver) {
             dataSource = openH2DataSource(
