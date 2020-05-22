@@ -117,7 +117,6 @@ class PostgresSagaLog implements SagaLog, AutoCloseable {
 
                 } catch (SQLException e) {
                     if (i + 1 < N) {
-                        LOG.warn(String.format("Failure while attempting to run transaction on sagalog '%s', performing retry #%d ...", sagaLogId.getLogName(), i + 1), e);
                         reconnecting = true;
                         try {
                             if (theConnection != null) {
@@ -148,6 +147,7 @@ class PostgresSagaLog implements SagaLog, AutoCloseable {
                             throw new RuntimeException(e);
                         }
                     } else {
+                        LOG.warn(String.format("Retry limit reached after %d attempts while attempting to run transaction on sagalog '%s'", i + 1, sagaLogId.getLogName()), e);
                         throw new RuntimeException("Retry limit reached after " + (i + 1) + " attempts", e);
                     }
                 } finally {
