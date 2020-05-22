@@ -97,11 +97,7 @@ public class PostgresSagaLogPoolTest {
         pool.connect(sagaLogId);
         pool.connect(sagaLogId);
         PostgresSagaLogPool anotherPool = createNewSagaLogPool(configuration(), pool.dataSource);
-        try {
-            pool.connect(sagaLogId);
-            anotherPool.connect(sagaLogId);
-        } finally {
-            anotherPool.shutdown();
-        }
+        pool.connect(sagaLogId);
+        anotherPool.connect(sagaLogId);
     }
 }
