@@ -10,6 +10,8 @@ import no.ssb.sagalog.SagaLogEntryId;
 import no.ssb.sagalog.SagaLogEntryType;
 import no.ssb.sagalog.SagaLogId;
 import org.postgresql.util.PGobject;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -27,6 +29,8 @@ import java.util.function.Function;
 import java.util.stream.Stream;
 
 class PostgresSagaLog implements SagaLog, AutoCloseable {
+
+    private static final Logger LOG = LoggerFactory.getLogger(PostgresSagaLog.class);
 
     final ULID ulid = new ULID();
     final AtomicReference<ULID.Value> prevUlid = new AtomicReference<>(ulid.nextValue());
@@ -113,9 +117,12 @@ class PostgresSagaLog implements SagaLog, AutoCloseable {
 
                 } catch (SQLException e) {
                     if (i + 1 < N) {
+                        LOG.warn(String.format("Failure while attempting to run transaction on sagalog '%s', performing retry #%d ...", sagaLogId.getLogName(), i + 1), e);
                         reconnecting = true;
                         try {
-                            dataSource.evictConnection(theConnection);
+                            if (theConnection != null) {
+                                dataSource.evictConnection(theConnection);
+                            }
                             theConnection = dataSource.getConnection();
                             if (lockIsHeld) {
                                 // avoid race-condition where the advisory lock might or might not yet have been
@@ -144,7 +151,7 @@ class PostgresSagaLog implements SagaLog, AutoCloseable {
                         throw new RuntimeException("Retry limit reached after " + (i + 1) + " attempts", e);
                     }
                 } finally {
-                    if (!success) {
+                    if (!success && theConnection != null) {
                         try {
                             theConnection.rollback();
                         } catch (SQLException e) {
