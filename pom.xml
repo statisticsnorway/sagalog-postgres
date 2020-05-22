@@ -4,7 +4,7 @@
 
     <groupId>no.ssb.saga</groupId>
     <artifactId>sagalog-postgres</artifactId>
-    <version>0.7-SNAPSHOT</version>
+    <version>0.7</version>
     <packaging>jar</packaging>
 
     <name>Postgres Saga Log</name>
@@ -38,7 +38,7 @@
         <connection>scm:git:git://github.com/statisticsnorway/sagalog-postgres.git</connection>
         <developerConnection>scm:git:git@github.com:statisticsnorway/sagalog-postgres.git</developerConnection>
         <url>https://github.com/statisticsnorway/sagalog-postgres/tree/master</url>
-        <tag>HEAD</tag>
+        <tag>sagalog-postgres-0.7</tag>
     </scm>
 
     <distributionManagement>
