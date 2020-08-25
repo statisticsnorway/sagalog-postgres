@@ -16,6 +16,16 @@ resources:
   containers:
     - container:  'ubuntu_container_for_build_to_nexus'
       image:      'ubuntu:latest'
+    - container:  'postgres'
+      image:      'postgres:12-alpine'
+      ports:
+        - 5432:5432
+      env:
+        POSTGRES_PASSWORD: postgres
+      volumes:
+        - pg_sagalog_test:/var/lib/postgresql/data
+        - ./init-db-and-user.sql:/docker-entrypoint-initdb.d/init.sql
+
   repositories:
     - repository: templates
       type:       github
@@ -49,6 +59,10 @@ jobs:
 
     # Job condition: Run these jobs on any branch, but not on tags
     condition:  not(startsWith(variables['Build.SourceBranch'], 'refs/tags'))
+
+    # Starting a postgres service for testing
+    services:
+      postgres: postgres
 
     # Steps in this Job
     steps:
