@@ -16,16 +16,14 @@ resources:
   containers:
     - container:  'ubuntu_container_for_build_to_nexus'
       image:      'ubuntu:latest'
-    - container:  'postgres'
+    - container:  'postgres_container_for_tests'
       image:      'postgres:12-alpine'
       ports:
         - 5432:5432
       env:
-        POSTGRES_PASSWORD: postgres
-      volumes:
-        - pg_sagalog_test:/var/lib/postgresql/data
-        - ./init-db-and-user.sql:/docker-entrypoint-initdb.d/init.sql
-
+        POSTGRES_DB:        $(IntegrationTests.Database.Name)
+        POSTGRES_USER:      $(IntegrationTests.Database.Username)
+        POSTGRES_PASSWORD:  $(IntegrationTests.Database.Password)
   repositories:
     - repository: templates
       type:       github
@@ -46,6 +44,12 @@ variables:
   - group:  Hemmeligheter
 
   # Variables defined here
+  - name:   'IntegrationTests.Database.Name'
+    value:  'sagalog'
+  - name:   'IntegrationTests.Database.Username'
+    value:  'test'
+  - name:   'IntegrationTests.Database.Password'
+    value:  'postgres'
   - name:   MAVEN_CACHE_FOLDER
     value:  $(Pipeline.Workspace)/.m2/repository
   - name:   MAVEN_OPTS
@@ -54,15 +58,15 @@ variables:
 # Job which will run mvn build, mvn install and Sonar Analysis (if branch is master)
 jobs:
   - job: buildTest
+
+      # Starting a postgres service for testing
+      services:
+        postgres: postgres_container_for_tests
     displayName:  'compile deploy app'
     container: ${{ parameters.mavenContainer }}
 
     # Job condition: Run these jobs on any branch, but not on tags
     condition:  not(startsWith(variables['Build.SourceBranch'], 'refs/tags'))
-
-    # Starting a postgres service for testing
-    services:
-      postgres: postgres
 
     # Steps in this Job
     steps:
