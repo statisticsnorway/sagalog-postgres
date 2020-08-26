@@ -43,9 +43,9 @@ variables:
 
   # Variables defined here
   - name:   'IntegrationTests.Database.Name'
-    value:  'postgres'
+    value:  'sagalog'
   - name:   'IntegrationTests.Database.Username'
-    value:  'postgres'
+    value:  'test'
   - name:   'IntegrationTests.Database.Password'
     value:  'postgres'
   - name:   MAVEN_CACHE_FOLDER
