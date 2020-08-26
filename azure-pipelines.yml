@@ -14,12 +14,10 @@ trigger:
 
 resources:
   containers:
-    - container:  'ubuntu_container_for_build_to_nexus'
-      image:      'ubuntu:latest'
     - container:  'postgres_container_for_tests'
       image:      'postgres:12-alpine'
       ports:
-        - 5432:5432
+        - 5432:5432/tcp
       env:
         POSTGRES_DB:        $(IntegrationTests.Database.Name)
         POSTGRES_USER:      $(IntegrationTests.Database.Username)
@@ -45,9 +43,9 @@ variables:
 
   # Variables defined here
   - name:   'IntegrationTests.Database.Name'
-    value:  'sagalog'
+    value:  'postgres'
   - name:   'IntegrationTests.Database.Username'
-    value:  'test'
+    value:  'postgres'
   - name:   'IntegrationTests.Database.Password'
     value:  'postgres'
   - name:   MAVEN_CACHE_FOLDER
