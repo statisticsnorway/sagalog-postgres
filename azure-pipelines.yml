@@ -60,13 +60,6 @@ jobs:
     # Starting a postgres service for testing
     services:
       postgres: postgres_container_for_tests
-        dockerContainerHealthcheckCommand: >-
-          pg_isready
-          --host=localhost
-          --port=5432
-          --dbname=$(IntegrationTests.Database.Todo.Name)
-          --username=$(IntegrationTests.Database.Todo.Username)
-          --quiet
     displayName:  'compile deploy app'
     container: ${{ parameters.mavenContainer }}
 
