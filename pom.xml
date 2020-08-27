@@ -164,6 +164,7 @@
                 </plugins>
             </build>
         </profile>
+<!--    TODO: Uncomment when done-->
 <!--        <profile>-->
 <!--            <id>coverage</id>-->
 <!--            <properties>-->
