@@ -27,7 +27,8 @@ public class PostgresSagaLogPoolTest {
                 "cluster.name", "internal-sagalog-integration-testing",
                 "cluster.instance-id", "01",
                 "postgres.driver.host", "localhost",
-                "postgres.driver.port", "5432",
+//                "postgres.driver.port", "5432",
+                "postgres.driver.port", "10112",
                 "postgres.driver.user", "test",
                 "postgres.driver.password", "test",
                 "postgres.driver.database", "sagalog"

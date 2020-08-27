@@ -5,7 +5,8 @@ services:
   postgresdb:
     image: postgres:12-alpine
     ports:
-      - 5432:5432
+      - 10112:5432
+      #- 5432:5432
     environment:
       POSTGRES_PASSWORD: postgres
     volumes:
