@@ -17,7 +17,7 @@ resources:
     - container:  'postgres_container_for_tests'
       image:      'postgres:12-alpine'
       ports:
-        - 10112:5432
+        - 5432:5432
       env:
         POSTGRES_DB:        $(IntegrationTests.Database.Name)
         POSTGRES_USER:      $(IntegrationTests.Database.Username)
@@ -57,7 +57,7 @@ variables:
 jobs:
   - job: buildTest
 
-      # Starting a postgres service for testing
+    # Starting a postgres service for testing
     services:
       postgres: postgres_container_for_tests
     displayName:  'compile deploy app'
