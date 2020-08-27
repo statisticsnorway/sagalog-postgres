@@ -1,7 +1,7 @@
 name: $(Build.SourceBranch)-$(date:yyyyMMdd)$(rev:.r)
-#parameters:
-#  - name: 'mavenContainer'
-#    default: 'maven:3-jdk-11'
+parameters:
+  - name: 'mavenContainer'
+    default: 'maven:3-jdk-11'
 
 # Pipeline triggers on any branch and tag
 trigger:
