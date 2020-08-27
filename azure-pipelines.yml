@@ -47,7 +47,7 @@ variables:
   - name:   'IntegrationTests.Database.Username'
     value:  'test'
   - name:   'IntegrationTests.Database.Password'
-    svalue:  'postgres'
+    value:  'postgres'
   - name:   MAVEN_CACHE_FOLDER
     value:  $(Pipeline.Workspace)/.m2/repository
   - name:   MAVEN_OPTS
