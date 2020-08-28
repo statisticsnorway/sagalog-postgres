@@ -61,7 +61,7 @@ jobs:
     services:
       postgres: postgres_container_for_tests
     displayName:  'compile deploy app'
-    container: ${{ parameters.mavenContainer }}
+    #container: ${{ parameters.mavenContainer }}
 
     # Job condition: Run these jobs on any branch, but not on tags
     condition:  not(startsWith(variables['Build.SourceBranch'], 'refs/tags'))
