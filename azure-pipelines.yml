@@ -1,7 +1,4 @@
 name: $(Build.SourceBranch)-$(date:yyyyMMdd)$(rev:.r)
-#parameters:
-#  - name: 'mavenContainer'
-#    default: 'maven:3-jdk-11'
 
 # Pipeline triggers on any branch and tag
 trigger:
@@ -61,19 +58,16 @@ jobs:
     services:
       postgres: postgres_container_for_tests
     displayName:  'compile deploy app'
-    #container: ${{ parameters.mavenContainer }}
 
     # Job condition: Run these jobs on any branch, but not on tags
     condition:  not(startsWith(variables['Build.SourceBranch'], 'refs/tags'))
 
     # Steps in this Job
     steps:
-
-      # Debugging TODO: Remove before merging
+      - # Setting JDK version to JDK 11
       - script: |
           echo "##vso[task.setvariable variable=JAVA_HOME]$(JAVA_HOME_11_X64)"
           echo "##vso[task.setvariable variable=PATH]$(JAVA_HOME_11_X64)/bin:$(PATH)"
-          printenv
         displayName: "Set java version"
 
       # Authenticate Maven to Nexus using predefined Service Connections
