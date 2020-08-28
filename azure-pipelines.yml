@@ -48,7 +48,6 @@ variables:
     value:  'test'
   - name:   'IntegrationTests.Database.Password'
     value:  'test'
-    #value:  'postgres'
   - name:   MAVEN_CACHE_FOLDER
     value:  $(Pipeline.Workspace)/.m2/repository
   - name:   MAVEN_OPTS
@@ -61,6 +60,11 @@ jobs:
     # Starting a postgres service for testing
     services:
       postgres: postgres_container_for_tests
+      options: >-
+        --health-cmd pg_isready
+        --health-interval 10s
+        --health-timeout 5s
+        --health-retries 5
     displayName:  'compile deploy app'
     container: ${{ parameters.mavenContainer }}
 
