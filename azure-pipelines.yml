@@ -70,10 +70,10 @@ jobs:
     steps:
 
       # Debugging TODO: Remove before merging
-      - script: printenv
       - script: |
           apt install -y postgresql-client
-          psql --host=postgres --username=test --command="SELECT 1;"
+          psql --host=localhost --username=test --command="SELECT 1;"
+          printenv
       # Authenticate Maven to Nexus using predefined Service Connections
       # (Project Settings->Pipelines->Service Connections)
       - template: maven/task-authenticate.yml@templates
