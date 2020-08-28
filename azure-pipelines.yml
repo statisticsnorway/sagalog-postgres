@@ -70,7 +70,12 @@ jobs:
     steps:
 
       # Debugging TODO: Remove before merging
-      - script: printenv
+      - script: |
+          echo "##vso[task.setvariable variable=JAVA_HOME]$(JAVA_HOME_11_X64)"
+          echo "##vso[task.setvariable variable=PATH]$(JAVA_HOME_11_X64)/bin:$(PATH)"
+          printenv
+        displayName: "Set java version"
+
       # Authenticate Maven to Nexus using predefined Service Connections
       # (Project Settings->Pipelines->Service Connections)
       - template: maven/task-authenticate.yml@templates
