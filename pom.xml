@@ -197,19 +197,6 @@
                             </execution>
                         </executions>
                     </plugin>
-                    <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-surefire-plugin</artifactId>
-                        <version>3.0.0-M4</version>
-                        <configuration>
-                            <forkCount>0</forkCount><!-- Possible workaround for "Corrupted STDOUT by directly writing to native stream in forked JVM 1" -->
-                            <argLine>
-                                ${argLine}
-                                --illegal-access=deny
-                                -Xmx1500m
-                            </argLine>
-                        </configuration>
-                    </plugin>
                 </plugins>
             </build>
         </profile>
