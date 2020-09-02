@@ -269,7 +269,6 @@
                 <version>2.19.1</version> <!-- Newer version do not yet work with Java 11 -->
                 <configuration>
                     <excludedGroups>integration</excludedGroups>
-                    <forkCount>0</forkCount><!-- Possible workaround for "Corrupted STDOUT by directly writing to native stream in forked JVM 1" -->
                 </configuration>
             </plugin>
             <plugin>
