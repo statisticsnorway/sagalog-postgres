@@ -1,19 +1,86 @@
-# Starter pipeline
-# Start with a minimal pipeline that you can customize to build and deploy your code.
-# Add steps that build, run tests, deploy, and more:
-# https://aka.ms/yaml
+name: $(Build.SourceBranch)-$(date:yyyyMMdd)$(rev:.r)
 
+# Pipeline triggers on any branch and tag
 trigger:
-- master
+  branches:
+    include:
+      - '*'
+  tags:
+    include:
+      - '*'
 
+resources:
+  containers:
+    - container:  'postgres_container_for_tests'
+      image:      'postgres:12-alpine'
+      ports:
+        - 5432:5432/tcp
+      env:
+        POSTGRES_DB:        $(IntegrationTests.Database.Name)
+        POSTGRES_USER:      $(IntegrationTests.Database.Username)
+        POSTGRES_PASSWORD:  $(IntegrationTests.Database.Password)
+  repositories:
+    - repository: templates
+      type:       github
+      name:       statisticsnorway/azure-pipelines-templates
+      ref:        refs/tags/0.0.10
+      endpoint:   statisticsnorway (6)
+
+# Pipeline will be run on this base image
 pool:
-  vmImage: 'ubuntu-latest'
+  vmImage:  'ubuntu-latest'
 
-steps:
-- script: echo Hello, world!
-  displayName: 'Run a one-line script'
+# Variables global to this pipeline
+# https://docs.microsoft.com/en-us/azure/devops/pipelines/process/variables
+variables:
 
-- script: |
-    echo Add other tasks to build, test, and deploy your project.
-    echo See https://aka.ms/yaml
-  displayName: 'Run a multi-line script'
+  # Variables defined in Pipelines->Library->Variable Groups in your project in
+  # Azure Pipelines
+  - group:  Hemmeligheter
+
+  # Variables defined here
+  - name:   'IntegrationTests.Database.Name'
+    value:  'sagalog'
+  - name:   'IntegrationTests.Database.Username'
+    value:  'test'
+  - name:   'IntegrationTests.Database.Password'
+    value:  'test'
+  - name:   MAVEN_CACHE_FOLDER
+    value:  $(Pipeline.Workspace)/.m2/repository
+  - name:   MAVEN_OPTS
+    value:  '-Dmaven.repo.local=$(MAVEN_CACHE_FOLDER)'
+
+# Job which will run mvn build, mvn install and Sonar Analysis (if branch is master)
+jobs:
+  - job: buildTest
+
+    # Starting a postgres service for testing
+    services:
+      postgres: postgres_container_for_tests
+    displayName:  'compile deploy app'
+
+    # Job condition: Run these jobs on any branch, but not on tags
+    condition:  not(startsWith(variables['Build.SourceBranch'], 'refs/tags'))
+
+    # Steps in this Job
+    steps:
+
+      # Setting JDK version to JDK 11
+      - script: |
+          echo "##vso[task.setvariable variable=JAVA_HOME]$(JAVA_HOME_11_X64)"
+          echo "##vso[task.setvariable variable=PATH]$(JAVA_HOME_11_X64)/bin:$(PATH)"
+        displayName: "Set java version"
+
+      # Authenticate Maven to Nexus using predefined Service Connections
+      # (Project Settings->Pipelines->Service Connections)
+      - template: maven/task-authenticate.yml@templates
+
+      # Maven caching to speed up pipeline build time
+      - template: maven/task-cache.yml@templates
+      - template: maven/task-test-and-verify.yml@templates
+
+      # Sonar-Analyze task to check code test coverage
+      - template: maven/task-sonar-analyze.yml@templates
+
+      # Deploy artifact to Nexus
+      - template: maven/task-install-and-deploy-to-nexus.yml@templates
