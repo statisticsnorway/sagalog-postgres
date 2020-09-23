@@ -48,10 +48,11 @@ class PostgresSagaLogPool extends AbstractSagaLogPool {
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(true);
             connection.beginRequest();
-            PreparedStatement ps = connection.prepareStatement("SELECT tablename FROM pg_tables WHERE schemaname = ? AND starts_with(tablename, ?)");
+            PreparedStatement ps = connection.prepareStatement("SELECT tablename FROM pg_tables WHERE schemaname = ? AND left(tablename, length(?)) = ?");
             ps.setString(1, schema);
             String tableNamePrefix = "SAGALOG_" + namespace + "_";
             ps.setString(2, tableNamePrefix);
+            ps.setString(3, tableNamePrefix);
             ResultSet rs = ps.executeQuery();
             Set<SagaLogId> logIds = new LinkedHashSet<>();
             while (rs.next()) {
