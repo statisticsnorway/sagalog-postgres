@@ -100,23 +100,23 @@ public class PostgresSagaLogInitializer implements SagaLogInitializer {
     }
 
     static void createSchemaIfNotExists(Connection connection, String schema, String username) throws SQLException {
-        Statement st = connection.createStatement();
-        String sql = String.format("CREATE SCHEMA IF NOT EXISTS \"%s\" AUTHORIZATION \"%s\"", schema, username);
-        st.executeUpdate(sql);
-        st.close();
+        try (Statement st = connection.createStatement()) {
+            String sql = String.format("CREATE SCHEMA IF NOT EXISTS \"%s\" AUTHORIZATION \"%s\"", schema, username);
+            st.executeUpdate(sql);
+        }
     }
 
     static void createLocksTableIfNotExists(Connection connection, String schema) throws SQLException {
-        Statement st = connection.createStatement();
-        String sql = String.format("CREATE TABLE IF NOT EXISTS \"%s\".\"Locks\" (\n" +
-                "    namespace       varchar NOT NULL,\n" +
-                "    instance_id     varchar NOT NULL,\n" +
-                "    log_id          varchar NOT NULL,\n" +
-                "    lock_key        bigint  NOT NULL,\n" +
-                "    PRIMARY KEY (namespace, instance_id, log_id)\n" +
-                ")", schema);
-        st.executeUpdate(sql);
-        st.close();
+        try (Statement st = connection.createStatement()) {
+            String sql = String.format("CREATE TABLE IF NOT EXISTS \"%s\".\"Locks\" (\n" +
+                    "    namespace       varchar NOT NULL,\n" +
+                    "    instance_id     varchar NOT NULL,\n" +
+                    "    log_id          varchar NOT NULL,\n" +
+                    "    lock_key        bigint  NOT NULL,\n" +
+                    "    PRIMARY KEY (namespace, instance_id, log_id)\n" +
+                    ")", schema);
+            st.executeUpdate(sql);
+        }
     }
 
     static HikariDataSource openH2DataSource(String jdbcUrl, String username, String password, int maxConnectionPoolSize) {

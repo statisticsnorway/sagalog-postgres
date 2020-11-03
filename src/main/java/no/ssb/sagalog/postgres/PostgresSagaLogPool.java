@@ -48,20 +48,23 @@ class PostgresSagaLogPool extends AbstractSagaLogPool {
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(true);
             connection.beginRequest();
-            PreparedStatement ps = connection.prepareStatement("SELECT tablename FROM pg_tables WHERE schemaname = ? AND left(tablename, length(?)) = ?");
-            ps.setString(1, schema);
-            String tableNamePrefix = "SAGALOG_" + namespace + "_";
-            ps.setString(2, tableNamePrefix);
-            ps.setString(3, tableNamePrefix);
-            ResultSet rs = ps.executeQuery();
-            Set<SagaLogId> logIds = new LinkedHashSet<>();
-            while (rs.next()) {
-                String tableName = rs.getString(1);
-                PostgresSagaLogId sagaLogId = new PostgresSagaLogId(schema, tableName);
-                logIds.add(sagaLogId);
+            try (PreparedStatement ps = connection.prepareStatement("SELECT tablename FROM pg_tables WHERE schemaname = ? AND left(tablename, length(?)) = ?")) {
+                ps.setString(1, schema);
+                String tableNamePrefix = "SAGALOG_" + namespace + "_";
+                ps.setString(2, tableNamePrefix);
+                ps.setString(3, tableNamePrefix);
+                try (ResultSet rs = ps.executeQuery()) {
+                    Set<SagaLogId> logIds = new LinkedHashSet<>();
+                    while (rs.next()) {
+                        String tableName = rs.getString(1);
+                        PostgresSagaLogId sagaLogId = new PostgresSagaLogId(schema, tableName);
+                        logIds.add(sagaLogId);
+                    }
+                    return logIds;
+                }
+            } finally {
+                connection.endRequest();
             }
-            connection.endRequest();
-            return logIds;
         } catch (SQLException e) {
             throw new RuntimeException(e);
         }
